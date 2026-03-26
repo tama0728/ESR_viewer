@@ -2,3 +2,6 @@
 /.idea
 /.git
 /.DS_Store
+*/edge_histo/*
+/SR/*
+/models/*

@@ -1,6 +1,6 @@
 # 🔎 Online Test Suite for Rendering
 
-[![Live Demo](https://img.shields.io/badge/Live-Demo-brightgreen)](https://tama0728.github.io/MSR_viewer)
+[![Live Demo](https://img.shields.io/badge/Live-Demo-brightgreen)](https://tama0728.github.io/ESR_viewer)
 
 _A web comparison tool for rendering research, forked from the [online test suite by Disney Research](https://tom94.net/data/publications/mueller18neural/interactive-viewer/)._
 

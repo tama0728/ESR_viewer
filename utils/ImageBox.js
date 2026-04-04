@@ -46,10 +46,10 @@ window.wheelzoom = (function () {
         function setSrcToBackground(img) {
             img.style.backgroundImage = 'url("' + img.src + '")';
             img.style.backgroundRepeat = 'no-repeat';
-            canvas.width = settings.width;
-            canvas.height = Math.min(720, canvas.width * (img.imHeight / img.imWidth));
-            img.bgOffsetX = (canvas.width - img.naturalWidth) / 2;
-            img.bgOffsetY = (canvas.height - img.naturalHeight) / 2;
+            canvas.width = 800; // Restrict image canvas to 800px independently of UI width
+            canvas.height = Math.min(500, canvas.width * (img.imHeight / img.imWidth));
+            img.bgOffsetX = (canvas.width - img.imWidth) / 2;
+            img.bgOffsetY = (canvas.height - img.imHeight) / 2;
             cachedDataUrl = canvas.toDataURL();
             img.src = cachedDataUrl;
 
@@ -166,8 +166,9 @@ window.wheelzoom = (function () {
         function load() {
             if (img.src === cachedDataUrl) return;
 
-            img.imWidth = img.naturalWidth;
-            img.imHeight = img.naturalHeight;
+            var scale = img.dataset.scale ? parseFloat(img.dataset.scale) : 1.0;
+            img.imWidth = img.naturalWidth * scale;
+            img.imHeight = img.naturalHeight * scale;
 
             img.bgWidth = img.imWidth;
             img.bgHeight = img.imHeight;
@@ -298,6 +299,9 @@ ImageBox.prototype.buildTreeNode = function (config, level, nodeList, parent) {
             content = document.createElement('img');
             content.className = "image-display pixelated";
             content.src = config[i].image;
+            if (config[i].scale) {
+                content.dataset.scale = config[i].scale;
+            }
             wheelzoom(content, imageBoxSettings);
             var key = '';
             if (i < 9)

@@ -1,160 +1,111 @@
 import os
 import json
-import re
 
-OUTPUT_DIR = 'output_images'
-SR_DIR = 'SR'
-MODELS_DIR = 'models'
+SCENE_DIR = 'results'
+OUTPUT_DIR = 'scenes'
 ROOT_INDEX = 'index.html'
 
-# Explicit sorting order and filter list
-PRIORITY = [
-    'LR', 'HR', 'SwinIR-C', 'PFT', 'SwinIR-RW', 
-    'Adc-SR', 'TSD_SR', 'edge', 'histo', 'edge_histo', 'face_histo', 'final'
-]
+TYPES = ['SwinIR', 'PFT-SR_TSD-SR']
 
-def get_image_files(directory):
-    valid_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'}
-    images = []
-    if not os.path.exists(directory):
-        return images
-    for f in os.listdir(directory):
-        if os.path.splitext(f)[1].lower() in valid_extensions:
-            images.append(f)
-    return images
-
-def get_model_folder_name(model_key, dataset_name):
-    """Maps the model key to its actual folder prefix/name in the models directory."""
-    mapping = {
-        'SwinIR-C': f"SwinIR-C/swinir_classical_sr_x4_{dataset_name}",
-        'PFT': f"PFT/PFT_{dataset_name}",
-        'SwinIR-RW': f"SwinIR-RW/swinir_real_sr_x4_{dataset_name}",
-        'Adc-SR': f"Adc_SR/AdcSR_{dataset_name}",
-        'TSD_SR': f"TSD_SR/{dataset_name}"
+# Map suffixes to display titles for each type
+SUFFIX_MAPPING = {
+    'SwinIR': {
+        '_LR.png': 'LR',
+        '_HR.png': 'HR',
+        '_SwinIR_C.png': 'SwinIR-C',
+        '_SwinIR_RW.png': 'SwinIR-RW',
+        '_SwinIR_1.png': 'Our1(edge)',
+        '_SwinIR_2.png': 'Our2(final)'
+    },
+    'PFT-SR_TSD-SR': {
+        '_LR.png': 'LR',
+        '_HR.png': 'HR',
+        '_PFT.png': 'PFT-SR',
+        '_TSD-SR.png': 'TSD-SR',
+        '_TSD_SR_PFT_1.png': 'Our1(edge)',
+        '_TSD_SR_PFT_2.png': 'Our2(final)',
+        '_PFT_TSD_GFPGAN.png': 'Our2+GFPGAN'
     }
-    return mapping.get(model_key, "")
+}
 
-def update_dataset_data(type_name, dataset_name):
-    """Generates data.js and index.html for a specific dataset within a type."""
-    dataset_path = os.path.join(OUTPUT_DIR, type_name, dataset_name)
+PRIORITY = {
+    'SwinIR': ['LR', 'HR', 'SwinIR-C', 'SwinIR-RW', 'Our1(edge)', 'Our2(final)'],
+    'PFT-SR_TSD-SR': ['LR', 'HR', 'PFT-SR', 'TSD-SR', 'Our1(edge)', 'Our2(final)', 'Our2+GFPGAN']
+}
+
+def extract_info():
+    if not os.path.exists(SCENE_DIR):
+        print(f"Directory {SCENE_DIR} not found.")
+        return {}
+    images = os.listdir(SCENE_DIR)
     
-    # 1. output_images categories
-    categories_available = []
-    if os.path.exists(dataset_path):
-        for d in os.listdir(dataset_path):
-            if os.path.isdir(os.path.join(dataset_path, d)):
-                if d in PRIORITY:
-                    categories_available.append(d)
-
-    image_map = {} # basename -> {category: filepath}
-    
-    def get_pure_basename(img_filename):
-        img_base = os.path.splitext(img_filename)[0]
-        if img_base in image_map:
-            return img_base
-        for b in image_map:
-            if img_base.startswith(b + '_') or img_base.startswith(b + 'x'):
-                return b
-        return img_base
-
-    # Collect from output_images (usually pure basenames)
-    for cat in categories_available:
-        cat_path = os.path.join(dataset_path, cat)
-        images = get_image_files(cat_path)
-        for img in images:
-            basename = get_pure_basename(img)
-            if basename not in image_map:
-                image_map[basename] = {}
-            image_map[basename][cat] = f"{cat}/{img}"
-
-    # 2. Collect HR and LR from SR/<dataset>/
-    sr_dataset_path = os.path.join(SR_DIR, dataset_name)
-    if os.path.exists(sr_dataset_path):
-        # HR (usually pure)
-        hr_path = os.path.join(sr_dataset_path, "HR")
-        if os.path.exists(hr_path):
-            for img in get_image_files(hr_path):
-                basename = get_pure_basename(img)
-                if basename not in image_map:
-                    image_map[basename] = {}
-                image_map[basename]['HR'] = f"../../../{SR_DIR}/{dataset_name}/HR/{img}"
+    base_prefixes = []
+    for img in images:
+        if img.endswith('_HR.png'):
+            base_prefixes.append(img.replace('_HR.png', ''))
+            
+    datasets_dict = {}
+    for bp in base_prefixes:
+        parts = bp.split('_', 1)
+        dataset_name = parts[0]
+        if dataset_name not in datasets_dict:
+            datasets_dict[dataset_name] = []
+        datasets_dict[dataset_name].append(bp)
         
-        # LR (check 'LR_bicubic' or 'LR')
-        lr_base_path = os.path.join(sr_dataset_path, "LR_bicubic")
-        lr_rel = "LR_bicubic"
-        if not os.path.exists(lr_base_path):
-            lr_base_path = os.path.join(sr_dataset_path, "LR")
-            lr_rel = "LR"
-            
-        lr_path = lr_base_path
-        if os.path.exists(os.path.join(lr_base_path, "X4")):
-            lr_path = os.path.join(lr_base_path, "X4")
-            lr_rel = f"{lr_rel}/X4"
-            
-        if os.path.exists(lr_path):
-            lr_images = get_image_files(lr_path)
-            print(f"Found {len(lr_images)} LR images in {lr_path}")
-            for img in lr_images:
-                basename = get_pure_basename(img)
-                if basename not in image_map:
-                    image_map[basename] = {}
-                image_map[basename]['LR'] = f"../../../{SR_DIR}/{dataset_name}/{lr_rel}/{img}"
+    return datasets_dict
 
-    # 3. Collect from models
-    for model_cat in ['SwinIR-C', 'PFT', 'SwinIR-RW', 'Adc-SR', 'TSD_SR']:
-        model_subpath = get_model_folder_name(model_cat, dataset_name)
-        model_dir = os.path.join(MODELS_DIR, model_subpath)
-        if os.path.exists(model_dir):
-            for img in get_image_files(model_dir):
-                basename = get_pure_basename(img)
-                if basename not in image_map:
-                    image_map[basename] = {}
-                image_map[basename][model_cat] = f"../../../{MODELS_DIR}/{model_subpath}/{img}"
+def update_dataset_data(type_name, dataset_name, base_prefixes):
+    dataset_path = os.path.join(OUTPUT_DIR, type_name, dataset_name)
+    if not os.path.exists(dataset_path):
+        os.makedirs(dataset_path)
 
-    # Construct data object enforcing strict priority
     image_boxes = []
-    sorted_basenames = sorted(image_map.keys())
+    base_prefixes = sorted(base_prefixes)
     
-    for basename in sorted_basenames:
+    for bp in base_prefixes:
+        img_name = bp.split('_', 1)[1] if '_' in bp else bp
         elements = []
-        for cat in PRIORITY:
-            # Filter models according to the parent folder type
-            if cat in ['SwinIR-C', 'PFT', 'SwinIR-RW', 'Adc-SR', 'TSD_SR']:
-                if type_name == 'SwinIR' and cat not in ['SwinIR-C', 'SwinIR-RW']:
-                    continue
-                if type_name == 'PFT_AdcSR' and cat not in ['PFT', 'Adc-SR']:
-                    continue
-                if type_name == 'TSD_SR_PFT' and cat not in ['PFT', 'TSD_SR']:
-                    continue
-                if type_name == 'TSD_SR_SwinIR' and cat not in ['SwinIR-C', 'TSD_SR']: # Defaulting to SwinIR-C for SwinIR models
-                    continue
-
-            if cat in image_map[basename]:
+        
+        for suffix, cat_title in SUFFIX_MAPPING[type_name].items():
+            img_filename = f"{bp}{suffix}"
+            scene_path = f"{SCENE_DIR}/{img_filename}"
+            if os.path.exists(os.path.join(SCENE_DIR, img_filename)):
                 el = {
-                    "title": cat,
+                    "title": cat_title,
                     "version": "-",
-                    "image": image_map[basename][cat]
+                    "image": f"../../../{scene_path}"
                 }
-                if cat == 'LR':
+                if cat_title == 'LR':
                     el["scale"] = 4
                 elements.append(el)
         
+        priority_list = PRIORITY[type_name]
+        elements.sort(key=lambda x: priority_list.index(x["title"]) if x["title"] in priority_list else 999)
+        
         if elements:
             image_boxes.append({
-                "title": basename,
+                "title": img_name,
                 "elements": elements
             })
-
-    # Write data.js
-    if not os.path.exists(dataset_path):
-        os.makedirs(dataset_path)
 
     data_content = f"const data = \n{json.dumps({'imageBoxes': image_boxes}, indent=4)}\n"
     with open(os.path.join(dataset_path, 'data.js'), 'w', encoding='utf-8') as f:
         f.write(data_content)
         
-    # Write dataset index.html
-    dataset_html = f"""<!DOCTYPE doctype html>
+    dataset_html = generate_dataset_html(dataset_name)
+    with open(os.path.join(dataset_path, 'index.html'), 'w', encoding='utf-8') as f:
+        f.write(dataset_html)
+        
+    if image_boxes and image_boxes[0]['elements']:
+        first_img = image_boxes[0]['elements'][0]['image']
+        if first_img.startswith("../../../"):
+            return first_img.replace("../../../", "../../", 1)
+        else:
+            return f"{dataset_name}/{first_img}"
+    return None
+
+def generate_dataset_html(dataset_name):
+    return f"""<!DOCTYPE doctype html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
@@ -199,7 +150,6 @@ def update_dataset_data(type_name, dataset_name):
             viewer.setState({{ activeRow: 1 }});
             content.appendChild(box);
         }}
-        // new ChartBox(content, data["stats"]);
         new TableBox(content, "Statistics", data["stats"]);
         new PlotBox(content, "Convergence Plots", data["stats"]);
     }}
@@ -214,19 +164,8 @@ def update_dataset_data(type_name, dataset_name):
 </body>
 </html>
 """
-    with open(os.path.join(dataset_path, 'index.html'), 'w', encoding='utf-8') as f:
-        f.write(dataset_html)
-    
-    if image_boxes and image_boxes[0]['elements']:
-        first_img = image_boxes[0]['elements'][0]['image']
-        if first_img.startswith("../../../"):
-            return first_img.replace("../../../", "../../", 1)
-        else:
-            return f"{dataset_name}/{first_img}"
-    return None
 
 def update_type_index(type_name, datasets_data):
-    """Generates the index.html for a specific type listing its datasets."""
     type_path = os.path.join(OUTPUT_DIR, type_name)
     if not os.path.exists(type_path):
         os.makedirs(type_path)
@@ -276,10 +215,8 @@ def update_type_index(type_name, datasets_data):
         
 def format_type_name(t):
     mapping = {
-        'PFT_AdcSR': 'PFT+AdcSR',
         'SwinIR': 'SwinIR',
-        'TSD_SR_PFT': 'PFT+TSD_SR',
-        'TSD_SR_SwinIR': 'SwinIR+TSD_SR'
+        'PFT-SR_TSD-SR': 'PFT-SR+TSD-SR',
     }
     return mapping.get(t, t.replace('_', ' '))
 
@@ -325,30 +262,22 @@ def update_root_index(types_data):
 
 def main():
     if not os.path.exists(OUTPUT_DIR):
-        print(f"Directory {OUTPUT_DIR} not found.")
-        return
+        os.makedirs(OUTPUT_DIR)
 
-    types = [d for d in os.listdir(OUTPUT_DIR) if os.path.isdir(os.path.join(OUTPUT_DIR, d))]
-    custom_order = ['SwinIR', 'PFT_AdcSR', 'TSD_SR_SwinIR', 'TSD_SR_PFT']
-    types.sort(key=lambda x: custom_order.index(x) if x in custom_order else 999)
-    
+    datasets_dict = extract_info()
     types_data = {}
-    
-    for t in types:
-        type_path = os.path.join(OUTPUT_DIR, t)
-        datasets = [d for d in os.listdir(type_path) if os.path.isdir(os.path.join(type_path, d))]
-        datasets.sort()
-        
+
+    for t in TYPES:
         datasets_data = {}
-        for ds in datasets:
-            thumb = update_dataset_data(t, ds)
-            datasets_data[ds] = thumb
+        for ds_name, base_prefixes in sorted(datasets_dict.items()):
+            thumb = update_dataset_data(t, ds_name, base_prefixes)
+            datasets_data[ds_name] = thumb
             
         update_type_index(t, datasets_data)
         
         type_thumb_for_root = None
-        for ds in datasets:
-            if datasets_data[ds]:
+        for ds in sorted(datasets_dict.keys()):
+            if datasets_data.get(ds):
                 root_relative_thumb = datasets_data[ds]
                 if root_relative_thumb.startswith("../../"):
                     type_thumb_for_root = root_relative_thumb.replace("../../", "", 1)
@@ -357,7 +286,7 @@ def main():
                 break
         
         types_data[t] = type_thumb_for_root
-        print(f"Updated type {t} with {len(datasets)} datasets.")
+        print(f"Updated type {t} with {len(datasets_dict)} datasets.")
         
     update_root_index(types_data)
 
